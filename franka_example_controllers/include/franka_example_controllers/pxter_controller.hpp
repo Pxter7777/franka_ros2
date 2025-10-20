@@ -30,6 +30,12 @@ namespace franka_example_controllers {
 /// The move to start example controller moves the robot into default pose.
 class PxterController : public controller_interface::ControllerInterface {
  public:
+  enum class State {
+    MOVING_TO_START,
+    MOVING_TO_PXTER_GOAL,
+    DONE,
+  };
+
   using Vector7d = Eigen::Matrix<double, 7, 1>;
   [[nodiscard]] controller_interface::InterfaceConfiguration command_interface_configuration()
       const override;
@@ -46,12 +52,14 @@ class PxterController : public controller_interface::ControllerInterface {
   const int num_joints = 7;
   Vector7d q_;
   Vector7d q_goal_;
+  Vector7d q_pxter_goal_;
   Vector7d dq_;
   Vector7d dq_filtered_;
   Vector7d k_gains_;
   Vector7d d_gains_;
   rclcpp::Time start_time_;
   std::unique_ptr<MotionGenerator> motion_generator_;
+  State current_state_;
 
   void updateJointStates();
 };

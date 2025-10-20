@@ -48,17 +48,20 @@ PxterController::state_interface_configuration() const {
 controller_interface::return_type PxterController::update(
     const rclcpp::Time& /*time*/,
     const rclcpp::Duration& /*period*/) {
-  if (current_state_ == State::DONE) {
+  updateJointStates();
+  std::lock_guard<std::mutex> lock(goal_mutex_);
+
+  if (!motion_generator_) {
+    // Do nothing if the motion generator isn't initialized yet
     return controller_interface::return_type::OK;
   }
 
-  updateJointStates();
   auto trajectory_time = this->get_node()->now() - start_time_;
   auto motion_generator_output = motion_generator_->getDesiredJointPositions(trajectory_time);
   Vector7d q_desired = motion_generator_output.first;
   bool finished = motion_generator_output.second;
 
-  if (not finished) {
+  if (!finished) {
     const double kAlpha = 0.99;
     dq_filtered_ = (1 - kAlpha) * dq_filtered_ + kAlpha * dq_;
     Vector7d tau_d_calculated =
@@ -67,18 +70,10 @@ controller_interface::return_type PxterController::update(
       command_interfaces_[i].set_value(tau_d_calculated(i));
     }
   } else {
-    if (current_state_ == State::MOVING_TO_START) {
-      RCLCPP_INFO(get_node()->get_logger(), "Finished moving to start. Now moving to pxter goal.");
-      current_state_ = State::MOVING_TO_PXTER_GOAL;
-      motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, q_pxter_goal_);
-      start_time_ = this->get_node()->now();
-    } else if (current_state_ == State::MOVING_TO_PXTER_GOAL) {
-      RCLCPP_INFO(get_node()->get_logger(), "Finished moving to pxter goal. Controller is done.");
-      current_state_ = State::DONE;
-      for (auto& command_interface : command_interfaces_) {
-        command_interface.set_value(0);
-      }
-      this->get_node()->set_parameter({"process_finished", true});
+    // Motion is finished. Hold position at goal by applying zero torque.
+    // A new motion will be started by the goalCallback.
+    for (auto& command_interface : command_interfaces_) {
+      command_interface.set_value(0);
     }
   }
   return controller_interface::return_type::OK;
@@ -86,14 +81,11 @@ controller_interface::return_type PxterController::update(
 
 CallbackReturn PxterController::on_init() {
   try {
-    auto_declare<bool>("process_finished", false);
     auto_declare<std::string>("arm_id", "fr3");
     auto_declare<std::vector<double>>("k_gains", {});
     auto_declare<std::vector<double>>("d_gains", {});
     auto_declare<std::vector<double>>("start_joint_configuration",
                                       {0.0, -M_PI_4, 0.0, -3.0 * M_PI_4, 0.0, M_PI_2, M_PI_4});
-    auto_declare<std::vector<double>>("pxter_joint_configuration",
-                                      {0.0, 0.0, 0.0, -3.0 * M_PI_4, 0.0, M_PI_2, M_PI_4});
   } catch (const std::exception& e) {
     fprintf(stderr, "Exception thrown during init stage with message: %s \n", e.what());
     return CallbackReturn::ERROR;
@@ -108,13 +100,9 @@ CallbackReturn PxterController::on_configure(
   auto d_gains = get_node()->get_parameter("d_gains").as_double_array();
   auto start_joint_configuration_vector =
       get_node()->get_parameter("start_joint_configuration").as_double_array();
-  auto pxter_joint_configuration_vector =
-      get_node()->get_parameter("pxter_joint_configuration").as_double_array();
 
   Eigen::Map<Eigen::VectorXd>(q_goal_.data(), num_joints) =
       Eigen::Map<Eigen::VectorXd>(start_joint_configuration_vector.data(), num_joints);
-  Eigen::Map<Eigen::VectorXd>(q_pxter_goal_.data(), num_joints) =
-      Eigen::Map<Eigen::VectorXd>(pxter_joint_configuration_vector.data(), num_joints);
 
   if (k_gains.empty()) {
     RCLCPP_FATAL(get_node()->get_logger(), "k_gains parameter not set");
@@ -139,15 +127,22 @@ CallbackReturn PxterController::on_configure(
     k_gains_(i) = k_gains.at(i);
   }
   dq_filtered_.setZero();
+
+  goal_subscriber_ = get_node()->create_subscription<std_msgs::msg::Float64MultiArray>(
+    "/pxter_controller/goal", 10, std::bind(&PxterController::goalCallback, this, std::placeholders::_1));
+
   return CallbackReturn::SUCCESS;
 }
 
 CallbackReturn PxterController::on_activate(
     const rclcpp_lifecycle::State& /*previous_state*/) {
   updateJointStates();
-  motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, q_goal_);
-  start_time_ = this->get_node()->now();
-  current_state_ = State::MOVING_TO_START;
+  {
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, q_goal_);
+    start_time_ = this->get_node()->now();
+  }
+  RCLCPP_INFO(get_node()->get_logger(), "Controller activated. Moving to initial start configuration.");
   return CallbackReturn::SUCCESS;
 }
 
@@ -162,6 +157,21 @@ void PxterController::updateJointStates() {
     q_(i) = position_interface.get_value();
     dq_(i) = velocity_interface.get_value();
   }
+}
+
+void PxterController::goalCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
+  if (msg->data.size() != num_joints) {
+    RCLCPP_ERROR(get_node()->get_logger(), "Received goal with wrong number of joints! Expected %d, got %zu.",
+                 num_joints, msg->data.size());
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(goal_mutex_);
+  Eigen::Map<const Eigen::Matrix<double, 7, 1>> new_goal(msg->data.data());
+  q_goal_ = new_goal;
+  motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, q_goal_);
+  start_time_ = this->get_node()->now();
+  RCLCPP_INFO(get_node()->get_logger(), "New goal received and motion generator reset.");
 }
 }  // namespace franka_example_controllers
 #include "pluginlib/class_list_macros.hpp"

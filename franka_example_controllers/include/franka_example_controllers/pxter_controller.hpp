@@ -16,12 +16,14 @@
 
 #include <memory>
 #include <string>
+#include <mutex>  // Added for thread safety
 
 #include <Eigen/Eigen>
 #include <controller_interface/controller_interface.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "motion_generator.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
@@ -30,12 +32,6 @@ namespace franka_example_controllers {
 /// The move to start example controller moves the robot into default pose.
 class PxterController : public controller_interface::ControllerInterface {
  public:
-  enum class State {
-    MOVING_TO_START,
-    MOVING_TO_PXTER_GOAL,
-    DONE,
-  };
-
   using Vector7d = Eigen::Matrix<double, 7, 1>;
   [[nodiscard]] controller_interface::InterfaceConfiguration command_interface_configuration()
       const override;
@@ -48,18 +44,25 @@ class PxterController : public controller_interface::ControllerInterface {
   CallbackReturn on_activate(const rclcpp_lifecycle::State& previous_state) override;
 
  private:
+  // Callback for the goal subscriber
+  void goalCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
+
   std::string arm_id_;
   const int num_joints = 7;
   Vector7d q_;
-  Vector7d q_goal_;
-  Vector7d q_pxter_goal_;
   Vector7d dq_;
   Vector7d dq_filtered_;
   Vector7d k_gains_;
   Vector7d d_gains_;
-  rclcpp::Time start_time_;
+
+  // Goal subscriber and mutex for thread-safe access
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr goal_subscriber_;
+  std::mutex goal_mutex_;
+
+  // Motion generation
+  Vector7d q_goal_;
   std::unique_ptr<MotionGenerator> motion_generator_;
-  State current_state_;
+  rclcpp::Time start_time_;
 
   void updateJointStates();
 };

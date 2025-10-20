@@ -65,6 +65,12 @@
             The move to start example controller moves the robot into default pose.
         </description>
     </class>
+    <class name="franka_example_controllers/PxterController"
+           type="franka_example_controllers::PxterController" base_class_type="controller_interface::ControllerInterface">
+        <description>
+            The move to start example controller moves the robot into default pose.
+        </description>
+    </class>
     <class name="franka_example_controllers/ModelExampleController"
            type="franka_example_controllers::ModelExampleController" base_class_type="controller_interface::ControllerInterface">
         <description>

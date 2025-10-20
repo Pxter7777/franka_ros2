@@ -83,6 +83,8 @@
 
       move_to_start_example_controller:
         type: franka_example_controllers/MoveToStartExampleController
+      pxter_controller:
+        type: franka_example_controllers/PxterController
 
 /**:
   cartesian_elbow_example_controller:
@@ -207,6 +209,26 @@
 
 /**:
   move_to_start_example_controller:
+    ros__parameters:
+      k_gains:
+        - 600.0
+        - 600.0
+        - 600.0
+        - 600.0
+        - 250.0
+        - 150.0
+        - 50.0
+      d_gains:
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+        - 10.0
+        - 10.0
+        - 5.0
+
+/**:
+  pxter_controller:
     ros__parameters:
       k_gains:
         - 600.0

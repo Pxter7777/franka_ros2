@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <mutex>  // Added for thread safety
+#include <queue>  // Added for the goal queue
 
 #include <Eigen/Eigen>
 #include <controller_interface/controller_interface.hpp>
@@ -60,7 +61,7 @@ class PxterController : public controller_interface::ControllerInterface {
   std::mutex goal_mutex_;
 
   // Motion generation
-  Vector7d q_goal_;
+  std::queue<Vector7d> goal_queue_;
   std::unique_ptr<MotionGenerator> motion_generator_;
   rclcpp::Time start_time_;
 

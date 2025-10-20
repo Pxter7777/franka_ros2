@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <franka_example_controllers/pxter_controller.hpp>
+#include "franka_example_controllers/pxter_controller.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -23,19 +23,16 @@
 
 namespace franka_example_controllers {
 
-controller_interface::InterfaceConfiguration
-PxterController::command_interface_configuration() const {
+controller_interface::InterfaceConfiguration PxterController::command_interface_configuration() const {
   controller_interface::InterfaceConfiguration config;
   config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-
   for (int i = 1; i <= num_joints; ++i) {
     config.names.push_back(arm_id_ + "_joint" + std::to_string(i) + "/effort");
   }
   return config;
 }
 
-controller_interface::InterfaceConfiguration
-PxterController::state_interface_configuration() const {
+controller_interface::InterfaceConfiguration PxterController::state_interface_configuration() const {
   controller_interface::InterfaceConfiguration config;
   config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
   for (int i = 1; i <= num_joints; ++i) {
@@ -45,17 +42,26 @@ PxterController::state_interface_configuration() const {
   return config;
 }
 
-controller_interface::return_type PxterController::update(
-    const rclcpp::Time& /*time*/,
-    const rclcpp::Duration& /*period*/) {
+controller_interface::return_type PxterController::update(const rclcpp::Time& /*time*/,
+                                                          const rclcpp::Duration& /*period*/) {
   updateJointStates();
   std::lock_guard<std::mutex> lock(goal_mutex_);
 
+  // If there is no active motion, check the queue and start a new one if available.
   if (!motion_generator_) {
-    // Do nothing if the motion generator isn't initialized yet
-    return controller_interface::return_type::OK;
+    if (goal_queue_.empty()) {
+      // No active motion and no new goals. Do nothing.
+      return controller_interface::return_type::OK;
+    }
+    // A new goal is available. Start a new motion.
+    Vector7d next_goal = goal_queue_.front();
+    goal_queue_.pop();
+    motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, next_goal);
+    start_time_ = this->get_node()->now();
+    RCLCPP_INFO(get_node()->get_logger(), "Starting new motion from queue.");
   }
 
+  // If we are here, motion_generator_ is guaranteed to be valid.
   auto trajectory_time = this->get_node()->now() - start_time_;
   auto motion_generator_output = motion_generator_->getDesiredJointPositions(trajectory_time);
   Vector7d q_desired = motion_generator_output.first;
@@ -70,8 +76,10 @@ controller_interface::return_type PxterController::update(
       command_interfaces_[i].set_value(tau_d_calculated(i));
     }
   } else {
-    // Motion is finished. Hold position at goal by applying zero torque.
-    // A new motion will be started by the goalCallback.
+    // Motion finished. Set generator to null so the next update cycle can check the queue.
+    RCLCPP_INFO(get_node()->get_logger(), "Motion finished.");
+    motion_generator_ = nullptr;
+    // Apply zero torques to hold position until next cycle
     for (auto& command_interface : command_interfaces_) {
       command_interface.set_value(0);
     }
@@ -93,33 +101,20 @@ CallbackReturn PxterController::on_init() {
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn PxterController::on_configure(
-    const rclcpp_lifecycle::State& /*previous_state*/) {
+CallbackReturn PxterController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   arm_id_ = get_node()->get_parameter("arm_id").as_string();
   auto k_gains = get_node()->get_parameter("k_gains").as_double_array();
   auto d_gains = get_node()->get_parameter("d_gains").as_double_array();
   auto start_joint_configuration_vector =
       get_node()->get_parameter("start_joint_configuration").as_double_array();
 
-  Eigen::Map<Eigen::VectorXd>(q_goal_.data(), num_joints) =
+  Vector7d start_goal;
+  Eigen::Map<Eigen::VectorXd>(start_goal.data(), num_joints) =
       Eigen::Map<Eigen::VectorXd>(start_joint_configuration_vector.data(), num_joints);
+  goal_queue_.push(start_goal); // Push the initial start position onto the queue
 
-  if (k_gains.empty()) {
-    RCLCPP_FATAL(get_node()->get_logger(), "k_gains parameter not set");
-    return CallbackReturn::FAILURE;
-  }
-  if (k_gains.size() != static_cast<uint>(num_joints)) {
-    RCLCPP_FATAL(get_node()->get_logger(), "k_gains should be of size %d but is of size %ld",
-                 num_joints, k_gains.size());
-    return CallbackReturn::FAILURE;
-  }
-  if (d_gains.empty()) {
-    RCLCPP_FATAL(get_node()->get_logger(), "d_gains parameter not set");
-    return CallbackReturn::FAILURE;
-  }
-  if (d_gains.size() != static_cast<uint>(num_joints)) {
-    RCLCPP_FATAL(get_node()->get_logger(), "d_gains should be of size %d but is of size %ld",
-                 num_joints, d_gains.size());
+  if (k_gains.empty() || d_gains.empty()) {
+    RCLCPP_FATAL(get_node()->get_logger(), "Gains parameters not set");
     return CallbackReturn::FAILURE;
   }
   for (int i = 0; i < num_joints; ++i) {
@@ -129,21 +124,32 @@ CallbackReturn PxterController::on_configure(
   dq_filtered_.setZero();
 
   goal_subscriber_ = get_node()->create_subscription<std_msgs::msg::Float64MultiArray>(
-    "/pxter_controller/goal", 10, std::bind(&PxterController::goalCallback, this, std::placeholders::_1));
+      "/pxter_controller/goal", 10,
+      std::bind(&PxterController::goalCallback, this, std::placeholders::_1));
 
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn PxterController::on_activate(
-    const rclcpp_lifecycle::State& /*previous_state*/) {
+CallbackReturn PxterController::on_activate(const rclcpp_lifecycle::State& /*previous_state*/) {
   updateJointStates();
-  {
-    std::lock_guard<std::mutex> lock(goal_mutex_);
-    motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, q_goal_);
-    start_time_ = this->get_node()->now();
-  }
-  RCLCPP_INFO(get_node()->get_logger(), "Controller activated. Moving to initial start configuration.");
+  // The first motion will be started by the update loop when it finds the first goal in the queue.
+  RCLCPP_INFO(get_node()->get_logger(), "Controller activated. Waiting for goals in the queue.");
   return CallbackReturn::SUCCESS;
+}
+
+void PxterController::goalCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
+  if (msg->data.size() != num_joints) {
+    RCLCPP_ERROR(get_node()->get_logger(), "Received goal with wrong number of joints! Expected %d, got %zu.",
+                 num_joints, msg->data.size());
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(goal_mutex_);
+  Vector7d new_goal;
+  Eigen::Map<const Eigen::Matrix<double, 7, 1>> new_goal_map(msg->data.data());
+  new_goal = new_goal_map;
+  goal_queue_.push(new_goal);
+  RCLCPP_INFO(get_node()->get_logger(), "New goal added to the queue.");
 }
 
 void PxterController::updateJointStates() {
@@ -159,21 +165,8 @@ void PxterController::updateJointStates() {
   }
 }
 
-void PxterController::goalCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
-  if (msg->data.size() != num_joints) {
-    RCLCPP_ERROR(get_node()->get_logger(), "Received goal with wrong number of joints! Expected %d, got %zu.",
-                 num_joints, msg->data.size());
-    return;
-  }
-
-  std::lock_guard<std::mutex> lock(goal_mutex_);
-  Eigen::Map<const Eigen::Matrix<double, 7, 1>> new_goal(msg->data.data());
-  q_goal_ = new_goal;
-  motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, q_goal_);
-  start_time_ = this->get_node()->now();
-  RCLCPP_INFO(get_node()->get_logger(), "New goal received and motion generator reset.");
-}
 }  // namespace franka_example_controllers
+
 #include "pluginlib/class_list_macros.hpp"
 // NOLINTNEXTLINE
 PLUGINLIB_EXPORT_CLASS(franka_example_controllers::PxterController,

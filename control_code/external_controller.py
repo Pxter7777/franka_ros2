@@ -1,6 +1,6 @@
 import socket
 import time
-
+import json
 # This is a simple, non-ROS Python script that acts as the external controller.
 
 # The host and port must match the server in bridge.py
@@ -17,6 +17,13 @@ SIGNALS = [
     [0.0, -M_PI_4, 0.0, 0.0, 0.0, M_PI_2, M_PI_4],
     [0.0, -M_PI_4, 0.0, -3.0 * M_PI_4, 0.0, M_PI_2, 0.0]
 ]
+# Find the latest motion plan file
+filename = "/home/j300/old_franka_ros2/control_codes/motion/motion_20251013_183040.json"
+
+# Load the motion plan
+with open(filename, "r") as f:
+    MOVES = json.load(f)
+
 
 def main():
     print("--- External Controller ---")
@@ -29,6 +36,15 @@ def main():
             print("Connected to bridge. Sending goals...")
 
             # Loop through the list of signals
+            for i, move in enumerate(MOVES):
+                positions = [p[:7] for p in move["positions"]]
+                #for i, position in enumerate(positions):
+                #    print(position, "BBBBBBB")
+                signal_str = ', '.join(map(str, positions[0]))
+                print(f"Sending signal #{i+1}: {signal_str}") 
+                s.sendall(signal_str.encode('utf-8')) 
+                time.sleep(5)
+            """
             for i, signal in enumerate(SIGNALS):
                 # Convert the list of numbers to a comma-separated string
                 signal_str = ', '.join(map(str, signal))    
@@ -40,6 +56,7 @@ def main():
                 
                 # Wait before sending the next one
                 time.sleep(5)
+            """
             
             print("All signals sent. Closing connection.")
 

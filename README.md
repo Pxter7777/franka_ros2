@@ -225,3 +225,35 @@ For questions or support, please open an issue on the [GitHub Issues](https://gi
 See the [Franka Control Interface (FCI) documentation](https://frankarobotics.github.io/docs) for more information.
 
 [def]: #docker-container-installation
+
+## start container
+```bash
+docker compose start
+```
+## open terminal
+```bash
+docker exec -it franka_ros2 /bin/bash
+```
+## Inside the Container
+#### move to start
+```bash
+ros2 launch franka_bringup example.launch.py controller_name:=move_to_start_example_controller
+```
+#### receiver controller
+```bash
+ros2 launch franka_bringup example.launch.py controller_name:=pxter_controller
+```
+#### bridge
+```bash
+python3 src/control_code/bridge.py 
+```
+## outside of container
+#### send joint goals
+```bash
+python control_code/robot_commander.py
+```
+
+#### Stop the container when finish
+```bash
+docker compose stop
+```

@@ -53,18 +53,23 @@ controller_interface::return_type MoveToStartExampleController::update(
   auto motion_generator_output = motion_generator_->getDesiredJointPositions(trajectory_time);
   Vector7d q_desired = motion_generator_output.first;
   bool finished = motion_generator_output.second;
-  if (not finished) {
-    const double kAlpha = 0.99;
-    dq_filtered_ = (1 - kAlpha) * dq_filtered_ + kAlpha * dq_;
-    Vector7d tau_d_calculated =
-        k_gains_.cwiseProduct(q_desired - q_) + d_gains_.cwiseProduct(-dq_filtered_);
-    for (int i = 0; i < 7; ++i) {
-      command_interfaces_[i].set_value(tau_d_calculated(i));
-    }
-  } else {
-    for (auto& command_interface : command_interfaces_) {
-      command_interface.set_value(0);
-    }
+
+  // Always track the desired position. After the motion finishes the motion
+  // generator keeps returning q_goal_, so this keeps actively holding the goal
+  // pose instead of releasing to zero torque (which let the arm sag away from
+  // the goal, by an amount that grew with the travel distance).
+  const double kAlpha = 0.99;
+  dq_filtered_ = (1 - kAlpha) * dq_filtered_ + kAlpha * dq_;
+  Vector7d tau_d_calculated =
+      k_gains_.cwiseProduct(q_desired - q_) + d_gains_.cwiseProduct(-dq_filtered_);
+  for (int i = 0; i < 7; ++i) {
+    command_interfaces_[i].set_value(tau_d_calculated(i));
+  }
+
+  // Flag completion only once: set_parameter is not realtime-safe, so we must
+  // not call it on every control cycle.
+  if (finished && not process_finished_) {
+    process_finished_ = true;
     this->get_node()->set_parameter({"process_finished", true});
   }
   return controller_interface::return_type::OK;
@@ -128,6 +133,7 @@ CallbackReturn MoveToStartExampleController::on_activate(
   updateJointStates();
   motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, q_goal_);
   start_time_ = this->get_node()->now();
+  process_finished_ = false;
   return CallbackReturn::SUCCESS;
 }
 

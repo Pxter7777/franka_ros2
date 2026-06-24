@@ -47,13 +47,8 @@ controller_interface::return_type PxterController::update(const rclcpp::Time& /*
   updateJointStates();
   std::lock_guard<std::mutex> lock(goal_mutex_);
 
-  // If there is no active motion, check the queue and start a new one if available.
-  if (!motion_generator_) {
-    if (goal_queue_.empty()) {
-      // No active motion and no new goals. Do nothing.
-      return controller_interface::return_type::OK;
-    }
-    // A new goal is available. Start a new motion.
+  // If there is no active motion, start the next queued goal (if any).
+  if (!motion_generator_ && !goal_queue_.empty()) {
     Vector7d next_goal = goal_queue_.front();
     goal_queue_.pop();
     motion_generator_ = std::make_unique<MotionGenerator>(0.2, q_, next_goal);
@@ -61,28 +56,32 @@ controller_interface::return_type PxterController::update(const rclcpp::Time& /*
     RCLCPP_INFO(get_node()->get_logger(), "Starting new motion from queue.");
   }
 
-  // If we are here, motion_generator_ is guaranteed to be valid.
-  auto trajectory_time = this->get_node()->now() - start_time_;
-  auto motion_generator_output = motion_generator_->getDesiredJointPositions(trajectory_time);
-  Vector7d q_desired = motion_generator_output.first;
-  bool finished = motion_generator_output.second;
-
-  if (!finished) {
-    const double kAlpha = 0.99;
-    dq_filtered_ = (1 - kAlpha) * dq_filtered_ + kAlpha * dq_;
-    Vector7d tau_d_calculated =
-        k_gains_.cwiseProduct(q_desired - q_) + d_gains_.cwiseProduct(-dq_filtered_);
-    for (int i = 0; i < 7; ++i) {
-      command_interfaces_[i].set_value(tau_d_calculated(i));
+  // Decide the position to track this cycle.
+  Vector7d q_desired;
+  if (motion_generator_) {
+    auto trajectory_time = this->get_node()->now() - start_time_;
+    auto motion_generator_output = motion_generator_->getDesiredJointPositions(trajectory_time);
+    q_desired = motion_generator_output.first;
+    if (motion_generator_output.second) {
+      // Motion finished: remember this goal as the hold target and clear the
+      // generator so the next cycle can pick up a new goal from the queue.
+      hold_position_ = q_desired;
+      motion_generator_ = nullptr;
+      RCLCPP_INFO(get_node()->get_logger(), "Motion finished.");
     }
   } else {
-    // Motion finished. Set generator to null so the next update cycle can check the queue.
-    RCLCPP_INFO(get_node()->get_logger(), "Motion finished.");
-    motion_generator_ = nullptr;
-    // Apply zero torques to hold position until next cycle
-    for (auto& command_interface : command_interfaces_) {
-      command_interface.set_value(0);
-    }
+    // No active motion and nothing queued: actively hold the last goal instead
+    // of commanding zero torque (which let the arm sag away from the goal).
+    q_desired = hold_position_;
+  }
+
+  // Always apply the tracking/holding PD law; never go limp.
+  const double kAlpha = 0.99;
+  dq_filtered_ = (1 - kAlpha) * dq_filtered_ + kAlpha * dq_;
+  Vector7d tau_d_calculated =
+      k_gains_.cwiseProduct(q_desired - q_) + d_gains_.cwiseProduct(-dq_filtered_);
+  for (int i = 0; i < 7; ++i) {
+    command_interfaces_[i].set_value(tau_d_calculated(i));
   }
   return controller_interface::return_type::OK;
 }
@@ -132,6 +131,9 @@ CallbackReturn PxterController::on_configure(const rclcpp_lifecycle::State& /*pr
 
 CallbackReturn PxterController::on_activate(const rclcpp_lifecycle::State& /*previous_state*/) {
   updateJointStates();
+  // Hold the current pose until the first queued goal takes over, so an idle
+  // cycle never commands zero torque.
+  hold_position_ = q_;
   // The first motion will be started by the update loop when it finds the first goal in the queue.
   RCLCPP_INFO(get_node()->get_logger(), "Controller activated. Waiting for goals in the queue.");
   return CallbackReturn::SUCCESS;

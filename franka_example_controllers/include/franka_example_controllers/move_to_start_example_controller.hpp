@@ -51,6 +51,7 @@ class MoveToStartExampleController : public controller_interface::ControllerInte
   Vector7d k_gains_;
   Vector7d d_gains_;
   rclcpp::Time start_time_;
+  bool process_finished_{false};
   std::unique_ptr<MotionGenerator> motion_generator_;
 
   void updateJointStates();

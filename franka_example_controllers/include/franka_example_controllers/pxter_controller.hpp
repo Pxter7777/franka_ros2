@@ -65,6 +65,10 @@ class PxterController : public controller_interface::ControllerInterface {
   std::unique_ptr<MotionGenerator> motion_generator_;
   rclcpp::Time start_time_;
 
+  // Position to actively hold while idle (no active motion / empty queue), so
+  // the arm keeps tracking its last goal instead of going limp and sagging.
+  Vector7d hold_position_;
+
   void updateJointStates();
 };
 }  // namespace franka_example_controllers

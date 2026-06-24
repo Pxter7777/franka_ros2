@@ -74,7 +74,6 @@ WORKDIR /ros2_ws
 # Install the missing ROS 2 dependencies
 COPY . /ros2_ws/src
 RUN sudo chown -R $USERNAME:$USERNAME /ros2_ws \
-    && vcs import src < src/franka.repos --recursive --skip-existing \
     && sudo apt-get update \
     && rosdep update \
     && rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y \

@@ -71,6 +71,13 @@
             The move to start example controller moves the robot into default pose.
         </description>
     </class>
+    <class name="franka_example_controllers/PxterCartesianController"
+           type="franka_example_controllers::PxterCartesianController" base_class_type="controller_interface::ControllerInterface">
+        <description>
+            Streams end-effector pose deltas to the robot's native Cartesian-pose interface,
+            rate-limited for a smooth command stream. The robot firmware solves the IK.
+        </description>
+    </class>
     <class name="franka_example_controllers/ModelExampleController"
            type="franka_example_controllers::ModelExampleController" base_class_type="controller_interface::ControllerInterface">
         <description>

@@ -29,6 +29,7 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(ruckig REQUIRED)
 
 add_library(
         ${PROJECT_NAME}
@@ -47,7 +48,8 @@ add_library(
         src/model_example_controller.cpp
         src/motion_generator.cpp
         src/move_to_start_example_controller.cpp
-        src/pxter_controller.cpp)
+        src/pxter_controller.cpp
+        src/pxter_cartesian_controller.cpp)
 target_include_directories(
         ${PROJECT_NAME}
         PUBLIC
@@ -68,6 +70,7 @@ ament_target_dependencies(
         rclcpp_lifecycle
         std_srvs
 )
+target_link_libraries(${PROJECT_NAME} ruckig::ruckig)
 
 pluginlib_export_plugin_description_file(
         controller_interface franka_example_controllers.xml)

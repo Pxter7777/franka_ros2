@@ -85,6 +85,8 @@
         type: franka_example_controllers/MoveToStartExampleController
       pxter_controller:
         type: franka_example_controllers/PxterController
+      pxter_cartesian_controller:
+        type: franka_example_controllers/PxterCartesianController
 
 /**:
   cartesian_elbow_example_controller:
@@ -246,3 +248,18 @@
         - 10.0
         - 10.0
         - 5.0
+
+/**:
+  pxter_cartesian_controller:
+    ros__parameters:
+      # MUST match controller_manager update_rate (1000 Hz -> 0.001 s). Ruckig uses
+      # this as its timestep; a wrong value makes the motion run too fast/slow.
+      control_cycle_time: 0.001
+      # Ruckig kinematic limits for the jerk-limited Cartesian command stream.
+      # Conservative defaults; raise once motion looks correct (FR3 allows far more).
+      max_linear_velocity: 0.05       # m/s
+      max_linear_acceleration: 0.5    # m/s^2
+      max_linear_jerk: 5.0            # m/s^3
+      max_angular_velocity: 0.3       # rad/s
+      max_angular_acceleration: 2.0   # rad/s^2
+      max_angular_jerk: 20.0          # rad/s^3

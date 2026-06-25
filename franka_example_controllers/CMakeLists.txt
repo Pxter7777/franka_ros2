@@ -49,7 +49,8 @@ add_library(
         src/motion_generator.cpp
         src/move_to_start_example_controller.cpp
         src/pxter_controller.cpp
-        src/pxter_cartesian_controller.cpp)
+        src/pxter_cartesian_controller.cpp
+        src/pxter_joint_stream_controller.cpp)
 target_include_directories(
         ${PROJECT_NAME}
         PUBLIC

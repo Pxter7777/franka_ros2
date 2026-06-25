@@ -87,6 +87,8 @@
         type: franka_example_controllers/PxterController
       pxter_cartesian_controller:
         type: franka_example_controllers/PxterCartesianController
+      pxter_joint_stream_controller:
+        type: franka_example_controllers/PxterJointStreamController
 
 /**:
   cartesian_elbow_example_controller:
@@ -232,6 +234,31 @@
 /**:
   pxter_controller:
     ros__parameters:
+      k_gains:
+        - 600.0
+        - 600.0
+        - 600.0
+        - 600.0
+        - 250.0
+        - 150.0
+        - 50.0
+      d_gains:
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+        - 10.0
+        - 10.0
+        - 5.0
+
+/**:
+  pxter_joint_stream_controller:
+    ros__parameters:
+      arm_id: "fr3"
+      # Ruckig per-joint limits for the streamed-trajectory tracker (conservative).
+      max_velocity: 1.0        # rad/s
+      max_acceleration: 4.0    # rad/s^2
+      max_jerk: 40.0           # rad/s^3
       k_gains:
         - 600.0
         - 600.0

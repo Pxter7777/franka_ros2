@@ -19,6 +19,10 @@ class StateBridgeNode(Node):
     (measured joint positions in radians; O_T_EE position in meters and
     orientation quaternion in x,y,z,w order). Before the first state message
     arrives the reply is "nodata".
+
+    The broadcaster publishes ~/robot_state inside the robot's namespace from
+    franka_bringup/config/franka.config.yaml (default "NS_1"). Override with:
+        python3 src/control_code/state_bridge.py --ros-args -p topic:=/...
     """
     def __init__(self):
         super().__init__('pxter_state_bridge_node')
@@ -26,13 +30,14 @@ class StateBridgeNode(Node):
         self.state_lock = threading.Lock()
         self.latest_line = None
 
+        self.topic = self.declare_parameter(
+            'topic', '/NS_1/franka_robot_state_broadcaster/robot_state').value
         self.subscription = self.create_subscription(
             FrankaRobotState,
-            '/franka_robot_state_broadcaster/robot_state',
+            self.topic,
             self._state_callback,
             10)
-        self.get_logger().info(
-            'Subscribed to /franka_robot_state_broadcaster/robot_state.')
+        self.get_logger().info(f'Subscribed to {self.topic}.')
 
         self.host = 'localhost'
         self.port = 9996  # 9999/9998/9997 = command bridges; 9996 = state out.
@@ -50,10 +55,10 @@ class StateBridgeNode(Node):
             have_state = self.latest_line is not None
         if not have_state:
             self.get_logger().warn(
-                'No FrankaRobotState received after 5 s. Is the controller stack '
-                'up? Check `ros2 topic list` for '
-                '/franka_robot_state_broadcaster/robot_state (a namespace prefix '
-                'means this subscription needs adjusting).')
+                f'No FrankaRobotState received after 5 s on {self.topic}. Is the '
+                'controller stack up? Compare against `ros2 topic list | grep '
+                'robot_state` — if the namespace differs, rerun with '
+                '--ros-args -p topic:=/<ns>/franka_robot_state_broadcaster/robot_state')
 
     def _state_callback(self, msg):
         q = list(msg.measured_joint_state.position)[:7]

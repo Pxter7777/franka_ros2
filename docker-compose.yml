@@ -20,6 +20,11 @@ services:
     environment:
       QT_X11_NO_MITSHM: 1
       DISPLAY: $DISPLAY
+      # Pin DDS to loopback: every ROS 2 node lives in this one container, and
+      # the robot link is libfranka (not DDS), so discovery must not leak onto
+      # the robot NIC or the LAN (other machines on the same WiFi run ROS 2 on
+      # domain 0 and would merge into our graph).
+      ROS_LOCALHOST_ONLY: 1
     cap_add:
       - SYS_NICE
     ulimits:

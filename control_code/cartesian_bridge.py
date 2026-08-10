@@ -1,7 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
+import os
 import socket
+import sys
 import threading
 import time
 
@@ -25,7 +27,11 @@ class CartesianBridgeNode(Node):
             'ROS 2 publisher on /pxter_cartesian_controller/goal is ready.')
 
         self.host = 'localhost'
-        self.port = 9998  # 9999 is used by the joint bridge; keep them distinct.
+        # Required env — forwarded from the superproject's
+        # configs/network(.defaults).conf; deliberately no local fallback.
+        if "FRANKA_CARTESIAN_BRIDGE_PORT" not in os.environ:
+            sys.exit("FRANKA_CARTESIAN_BRIDGE_PORT is not set — launch via the franka up-scripts, or pass docker exec -e FRANKA_CARTESIAN_BRIDGE_PORT=<port>")
+        self.port = int(os.environ["FRANKA_CARTESIAN_BRIDGE_PORT"])
 
         self.server_thread = threading.Thread(target=self._socket_server_loop)
         self.server_thread.daemon = True

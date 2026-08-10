@@ -1,7 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
+import os
 import socket
+import sys
 import threading
 import time
 
@@ -23,7 +25,11 @@ class JointStreamBridgeNode(Node):
         self.get_logger().info('ROS 2 publisher on /pxter_joint_stream_controller/goal is ready.')
 
         self.host = 'localhost'
-        self.port = 9997  # 9999 = plain bridge, 9998 = cartesian bridge; keep distinct.
+        # Required env — forwarded from the superproject's
+        # configs/network(.defaults).conf; deliberately no local fallback.
+        if "FRANKA_JOINT_STREAM_PORT" not in os.environ:
+            sys.exit("FRANKA_JOINT_STREAM_PORT is not set — launch via the franka up-scripts, or pass docker exec -e FRANKA_JOINT_STREAM_PORT=<port>")
+        self.port = int(os.environ["FRANKA_JOINT_STREAM_PORT"])
 
         self.server_thread = threading.Thread(target=self._socket_server_loop)
         self.server_thread.daemon = True

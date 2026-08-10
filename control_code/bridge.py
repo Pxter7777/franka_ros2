@@ -1,7 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
+import os
 import socket
+import sys
 import threading
 import time
 
@@ -19,7 +21,11 @@ class BridgeNode(Node):
 
         # --- Socket Server Setup ---
         self.host = 'localhost'
-        self.port = 9999
+        # Required env — forwarded from the superproject's
+        # configs/network(.defaults).conf; deliberately no local fallback.
+        if "FRANKA_JOINT_QUEUE_PORT" not in os.environ:
+            sys.exit("FRANKA_JOINT_QUEUE_PORT is not set — pass docker exec -e FRANKA_JOINT_QUEUE_PORT=<port> (this bridge has no up-script)")
+        self.port = int(os.environ["FRANKA_JOINT_QUEUE_PORT"])
         
         # The server must run in a separate thread to not block the ROS 2 node
         self.server_thread = threading.Thread(target=self._socket_server_loop)

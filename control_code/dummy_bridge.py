@@ -1,9 +1,15 @@
+import os
 import socket
+import sys
 import threading
 import time
 
 HOST = 'localhost'
-PORT = 9999
+# Required env — forwarded from the superproject's
+# configs/network(.defaults).conf; deliberately no local fallback.
+if "FRANKA_JOINT_QUEUE_PORT" not in os.environ:
+    sys.exit("FRANKA_JOINT_QUEUE_PORT is not set — set FRANKA_JOINT_QUEUE_PORT in the environment (dummy bridge, host-run)")
+PORT = int(os.environ["FRANKA_JOINT_QUEUE_PORT"])
 
 def handle_client(conn, addr):
     print(f"Dummy Bridge: Connected by {addr}")

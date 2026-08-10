@@ -1,7 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from franka_msgs.msg import FrankaRobotState
+import os
 import socket
+import sys
 import threading
 import time
 
@@ -40,7 +42,11 @@ class StateBridgeNode(Node):
         self.get_logger().info(f'Subscribed to {self.topic}.')
 
         self.host = 'localhost'
-        self.port = 9996  # 9999/9998/9997 = command bridges; 9996 = state out.
+        # Required env — forwarded from the superproject's
+        # configs/network(.defaults).conf; deliberately no local fallback.
+        if "FRANKA_STATE_BRIDGE_PORT" not in os.environ:
+            sys.exit("FRANKA_STATE_BRIDGE_PORT is not set — launch via the franka up-scripts, or pass docker exec -e FRANKA_STATE_BRIDGE_PORT=<port>")
+        self.port = int(os.environ["FRANKA_STATE_BRIDGE_PORT"])
 
         self.server_thread = threading.Thread(target=self._socket_server_loop)
         self.server_thread.daemon = True
